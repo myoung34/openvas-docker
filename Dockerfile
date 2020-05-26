@@ -1,19 +1,6 @@
-# Start by pulling down our existing container
-# to sync 1.9 Gb of data from OpenVAS.
-FROM mikesplain/openvas
-
 FROM ubuntu:16.04
 
-COPY --from=0 /var/lib/openvas /var/lib/openvas
-COPY config/redis.config /etc/redis/redis.config
-COPY config/sasl_passwd_template /
-COPY config/main.cf_template /
-COPY config/ldapUserSync/* /ldapUserSync/
-COPY start /start
-
-ENV DEBIAN_FRONTEND=noninteractive \
-    OV_PASSWORD=admin \
-    PUBLIC_HOSTNAME=openvas
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
     apt-get install software-properties-common --no-install-recommends -yq && \
@@ -72,7 +59,6 @@ RUN apt-get update && \
         isc-dhcp-client \
         isc-dhcp-common \
         javascript-common \
-        ldap-utils \
         libalgorithm-diff-perl \
         libalgorithm-diff-xs-perl \
         libalgorithm-merge-perl \
@@ -213,7 +199,6 @@ RUN apt-get update && \
         libkrb5support0:amd64 \
         libksba8:amd64 \
         liblcms2-2:amd64 \
-        libldap-2.4-2:amd64 \
         libldb1:amd64 \
         liblinear3:amd64 \
         libllvm6.0:amd64 \
@@ -510,33 +495,15 @@ RUN apt-get update && \
     -yq --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
-RUN wget -q https://github.com/Arachni/arachni/releases/download/v1.5.1/arachni-1.5.1-0.5.12-linux-x86_64.tar.gz && \
-    tar -zxf arachni-1.5.1-0.5.12-linux-x86_64.tar.gz && \
-    mv arachni-1.5.1-0.5.12 /opt/arachni && \
-    ln -s /opt/arachni/bin/* /usr/local/bin/ && \
-    rm -rf arachni*
+RUN mkdir -p /var/run/redis
+RUN wget -q --no-check-certificate https://raw.githubusercontent.com/kurobeats/OpenVas-Management-Scripts/master/openvas-check-setup -O /openvas-check-setup 
+RUN chmod +x /openvas-check-setup
+RUN sed -i 's/DAEMON_ARGS=""/DAEMON_ARGS="-a 0.0.0.0 --client-watch-interval=0"/' /etc/init.d/openvas-manager
+RUN sed -i 's/DAEMON_ARGS=""/DAEMON_ARGS="--mlisten 127.0.0.1 -m 9390 --gnutls-priorities=SECURE128:-AES-128-CBC:-CAMELLIA-128-CBC:-VERS-SSL3.0:-VERS-TLS1.0"/' /etc/init.d/openvas-gsa
 
-RUN mkdir -p /var/run/redis && \
-    wget -q --no-check-certificate \
-    https://raw.githubusercontent.com/kurobeats/OpenVas-Management-Scripts/master/openvas-check-setup \
-      -O /openvas-check-setup && \
-    chmod +x /openvas-check-setup && \
-    sed -i 's/DAEMON_ARGS=""/DAEMON_ARGS="-a 0.0.0.0 --client-watch-interval=0"/' /etc/init.d/openvas-manager && \
-    sed -i 's/DAEMON_ARGS=""/DAEMON_ARGS="--mlisten 127.0.0.1 -m 9390 --gnutls-priorities=SECURE128:-AES-128-CBC:-CAMELLIA-128-CBC:-VERS-SSL3.0:-VERS-TLS1.0"/' /etc/init.d/openvas-gsa && \
-    sed -i '/^\[ -n "$HTTP_STS_MAX_AGE" \]/a[ -n "$PUBLIC_HOSTNAME" ] && DAEMON_ARGS="$DAEMON_ARGS --allow-header-host=$PUBLIC_HOSTNAME"' /etc/init.d/openvas-gsa && \
-    sed -i 's/PORT_NUMBER=4000/PORT_NUMBER=443/' /etc/default/openvas-gsa && \
-    greenbone-nvt-sync > /dev/null && \
-    greenbone-scapdata-sync > /dev/null && \
-    greenbone-certdata-sync > /dev/null && \
-    BUILD=true /start && \
-    service openvas-scanner stop && \
-    service openvas-manager stop && \
-    service openvas-gsa stop && \
-    service redis-server stop
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
+ENTRYPOINT ["/entrypoint.sh"]
 
-ENV BUILD=""
-
-CMD /start
-
-EXPOSE 443 9390
+EXPOSE 80 9390
